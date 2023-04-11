@@ -1,0 +1,181 @@
+<?php
+/* 
+Plugin Name: nequi-colombia-por-compufriendsoem
+Plugin URI: desarrollamostusideas.com
+Description: Es un plugin que nos sirve para hacer pagos por nequi
+Version: 0.0.1
+Author: Yauris Carrillo
+*/
+
+function Activar_plugin_nequi(){
+
+}
+
+
+function Desactivar_plugin_nequi(){
+
+}
+register_activation_hook(__FILE__, 'Activar_plugin_nequi');
+register_deactivation_hook(__FILE__,'Desactivar_plugin_nequi');
+
+
+add_filter( 'woocommerce_payment_gateways', 'agregar_mi_metodo_de_pago' );
+
+function agregar_mi_metodo_de_pago( $gateways ) {
+
+    if ( ! class_exists( 'Mi_Metodo_De_Pago' ) ) {
+        // Definir las propiedades del método de pago
+        class Mi_Metodo_De_Pago extends WC_Payment_Gateway {
+
+            public function __construct() {
+                $this->id                 = 'mi_metodo_de_pago';
+                $this->method_title       = 'Pago con Nequi';
+                $this->method_description = 'Es una forma de integrar Nequi a sus tiendas como pago pero ojo no esta integrada con la API ya que hay cobros adicionales por medio de la empresa Nequi.';
+            
+                $this->title       = '';
+                $this->has_fields = false;
+                $this->supports    = array(
+                    'products',
+                );
+            
+                $this->init_form_fields();
+                $this->init_settings();
+            
+                $this->enabled     = $this->get_option( 'enabled' );
+                $this->title       = $this->get_option( 'title' );
+                $this->description = $this->get_option( 'description' );
+            
+                if ( 'no' === $this->enabled ) {
+                    $this->description = '';
+                }
+            }
+
+
+           public function init_form_fields() {
+    $this->form_fields = array(
+        'enabled' => array(
+            'title'   => 'Activar Nequi como método de pago',
+            'type'    => 'checkbox',
+            'label'   => 'Habilitar',
+            'default' => 'yes',
+        ),
+        'title' => array(
+            'title'       => 'Título',
+            'type'        => 'text',
+            'description' => 'Título del método de pago que se mostrará en el checkout.',
+            'default'     => $this->method_title,
+            'placeholder' => 'Titulo del método de pago',
+            'desc_tip'    => true,
+        ),
+        'description' => array(
+            'title'       => 'Descripción',
+            'type'        => 'textarea',
+            'description' => 'Descripción del método de pago que se mostrará en el checkout.',
+            'default'     => $this->method_description,
+            'placeholder' => 'Describe tus datos que necesitas para que envien el dinero por nequi',
+            'desc_tip'    => true,
+        ),
+        'image' => array(
+            'title'       => 'Imagen',
+            'type'        => 'text',
+            'description' => 'Imagen del método de pago que se mostrará en el checkout.',
+            'default'     => $this->get_icon(),
+            'placeholder' => 'https://ejemplo-de-url-de-imagen-que-debes-pegar.png',
+            'desc_tip'    => true,
+        ),
+    );
+
+    // Guardar los cambios al presionar el botón "Guardar cambios"
+    foreach ( $this->form_fields as $key => $field ) {
+        add_action( 'woocommerce_update_options_payment_gateways_' . $this->id, array( $this, 'process_admin_options' ) );
+    }
+}
+
+public function process_admin_options() {
+    parent::process_admin_options();
+
+    foreach ( $this->form_fields as $key => $field ) {
+        if ( isset( $_POST[ $this->plugin_id . $this->id . '_' . $key ] ) ) {
+            $value = $_POST[ $this->plugin_id . $this->id . '_' . $key ];
+            update_option( $this->plugin_id . $this->id . '_' . $key, $value );
+        }
+    }
+}
+
+
+
+            public function payment_fields() {
+                if ( $this->get_option( 'description' ) ) {
+                    echo wpautop( wptexturize( $this->get_option( 'description' ) ) );
+                }
+            
+                if ( $this->get_icon() ) {
+                    echo '<img src="' . esc_url( $this->get_icon() ) . '" alt="' . esc_attr__( 'Imagen del método de pago', 'woocommerce' ) . '" class="wp-image-' . absint( $this->get_option( 'image_id' ) ) . '" />';
+                }
+            }
+
+
+            public function process_payment( $order_id ) {
+                $order = wc_get_order( $order_id );
+            
+                // Actualizar el estado de la orden y guardar la información de pago
+                $order->update_status( 'processing', __( 'Pago recibido a través de Mi Método de Pago.', 'woocommerce' ) );
+                $order->payment_complete();
+            
+                // Vaciar el carrito
+                WC()->cart->empty_cart();
+            
+                // Redirigir al usuario a la página de confirmación
+                return array(
+                    'result'   => 'success',
+                    'redirect' => $this->get_return_url( $order )
+                );
+            }
+        }
+    }
+
+    // Agregar el método de pago
+    $gateways[] = 'Mi_Metodo_De_Pago';
+    return $gateways;
+}
+
+add_filter( 'woocommerce_available_payment_gateways', 'ocultar_metodo_de_pago_si_no_habilitado', 10, 1 );
+
+function ocultar_metodo_de_pago_si_no_habilitado( $available_gateways ) {
+    if ( isset( $available_gateways['mi_metodo_de_pago'] ) ) {
+        $gateway = $available_gateways['mi_metodo_de_pago'];
+        if ( 'no' === $gateway->enabled ) {
+            unset( $available_gateways['mi_metodo_de_pago'] );
+        }
+    }
+
+    return $available_gateways;
+}
+
+add_action( 'woocommerce_review_order_after_payment', 'mostrar_contenido_metodo_pago_checkout' );
+
+function mostrar_contenido_metodo_pago_checkout() {
+    $gateway = wc_get_payment_gateway_by_order( $order );
+    if ( $gateway instanceof Mi_Metodo_De_Pago ) {
+        $title = $gateway->get_title();
+        $description = $gateway->get_description();
+        $attachment_id = $gateway->get_option('image_id');
+        $image_url = wp_get_attachment_url( $attachment_id );
+        ?>
+        <div class="mi-metodo-de-pago-content">
+            <h3><?php echo $title; ?></h3>
+            <p><?php echo $description; ?></p>
+            <img src="<?php echo $image_url; ?>" class="imagen-nequi" alt="<?php echo $title; ?>">
+        </div>
+        <?php
+    }
+}
+
+/**
+ * Registrar el plugin
+ */
+function registrar_mi_plugin() {
+    require_once plugin_dir_path( __FILE__ ) . '../nequi-colombia-por-compufriendsoem.php';
+}
+
+add_action( 'plugins_loaded', 'registrar_mi_plugin' );
